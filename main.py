@@ -17,6 +17,9 @@ To keep the transfer honest, the script:
 * reads the sheet into memory as raw bytes,
 * writes those bytes to a temporary file in the same destination folder,
 * swaps the temporary file into its final name in one atomic step,
+* makes the delivered file world-readable (the harness reads
+  ``/output`` as a different, non-root user, and the temporary file
+  is created mode 0600, which that user cannot read),
 * then re-reads the delivered file and compares its SHA-256 digest with
   the digest of the source, failing loudly if the two do not agree.
 
@@ -28,6 +31,7 @@ produces identical output on every run.
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -84,6 +88,12 @@ def deliver_sheet(source: Path, target_dir: Path) -> tuple[Path, str]:
     except BaseException:
         Path(handle.name).unlink(missing_ok=True)
         raise
+
+    # NamedTemporaryFile creates its file mode 0600, and the rename keeps
+    # that mode. The harness collects /output as a different, non-root
+    # user, so a 0600 file is unreadable to it and the run fails with
+    # "entry.png is not readable". Make the delivered sheet readable.
+    os.chmod(final_path, 0o644)
 
     actual = digest_file(final_path)
     if actual != expected:
